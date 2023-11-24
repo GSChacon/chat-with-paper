@@ -1,3 +1,4 @@
 .env
 test_data/*
 vector_store_db/*
+.python-version
