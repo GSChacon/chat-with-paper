@@ -1,28 +1,26 @@
 import os
-import pickle
 from dotenv import load_dotenv
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.embeddings.openai import OpenAIEmbeddings
 from langchain.vectorstores import FAISS
 from langchain.document_loaders import PyPDFLoader
-from langchain.llms import OpenAI
-
+from langchain.chat_models import ChatOpenAI
+from langchain.prompts import PromptTemplate
+from langchain.chains import RetrievalQA
+from langchain.memory import ConversationBufferWindowMemory
+from langchain.prompts.chat import ChatPromptTemplate, HumanMessagePromptTemplate, SystemMessagePromptTemplate
 
 load_dotenv()
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 
-def handle_user_input():
-    user_input = input('What do you want to talk about? \n')
+def ask_user_input():
+    user_input = input('Ask questions about your paper (type END to exit): \n')
     return user_input
 
-def define_model():
-    llm = OpenAI(openai_api_key = OPENAI_API_KEY)
+def define_model(model_name='gpt-3.5-turbo'):
+    llm = ChatOpenAI(openai_api_key = OPENAI_API_KEY, temperature = 0, model_name = model_name)
     return llm
-
-def predict(model, user_input):
-    res = model.predict(user_input)
-    return res
 
 def get_pdf_name(path_to_pdf):
     name_list = path_to_pdf.split('/')
@@ -50,18 +48,44 @@ def embed_chunks(chunks):
     return vector_store
 
 def check_if_db_exists(name):
-    path = f"{os.path.join('vector_store_db', f'{name}.pkl')}"
+    path = f"{os.path.join('vector_store_db', f'{name}_db')}"
     return os.path.exists(path), path
 
 def save_vector_store(vector_store, path):
-    with open(path, "wb") as f:
-        pickle.dump(vector_store, f)
-    return None
+    vector_store.save_local(path)
+    return
 
 def load_vector_store(path):
-    with open(path, 'rb') as f:
-        vector_store = pickle.load(f)
+    embeddings = OpenAIEmbeddings()
+    vector_store = FAISS.load_local(path, embeddings)
     return vector_store
+
+def similarity_search(vector_store, user_input, k=3):
+    docs = vector_store.similarity_search(query = user_input, k=k)
+    return docs
+
+def create_prompt_template():
+    template = """You are a large language model designed to help answer questions about scientific papers.
+    You are constantly learning and improving, and its capabilities are constantly evolving.
+    You are able to process and understand large amounts of text, including markdown, and can use this knowledge to provide accurate and informative responses to a wide range of questions.
+    Additionally, you are able to generate its own text based on the input it receives, allowing it to engage in discussions and provide explanations and descriptions on a wide range of topics.
+    If you can't find the answer in the relevant part of the scientific paper, it says so in their answer.
+    You understand markdown.
+    You use twenty senteces maximum.
+    You use the following pieces of the paper to answer the question at the end. You prioratize the documentation to answer.
+    Relevant part of the scientific paper in markdown: {context}
+    """
+    system_message_prompt = SystemMessagePromptTemplate.from_template(template)
+    human_template = "{text}"
+    human_message_prompt = HumanMessagePromptTemplate.from_template(human_template)
+    chat_prompt = ChatPromptTemplate.from_messages([system_message_prompt, human_message_prompt])
+    return chat_prompt
+
+def run_chat(chat_prompt, model, docs, user_input):
+    chat = model
+    output = chat(chat_prompt.format_prompt(
+        context=docs, text=user_input).to_messages())
+    return output.content
 
 
 
@@ -79,7 +103,12 @@ def main():
     else:
         print('File already exists in database. \nLoading vector store... \n')
         vector_store = load_vector_store(path_to_store)
-    print('Loaded vector store.')
+    print('Loaded vector store')
+    chat_prompt = create_prompt_template()
+    model = define_model(model_name='gpt-3.5-turbo')
+    user_input = ask_user_input()
+    docs = similarity_search(vector_store, user_input)
+    print(run_chat(chat_prompt, model, docs, user_input))
     return
 
 if __name__ == "__main__":
