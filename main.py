@@ -19,7 +19,7 @@ def ask_user_input(first_message = True):
         user_input = input('\n')
     return user_input
 
-def define_model(model_name='gpt-3.5-turbo'):
+def define_model(model_name='gpt-3.5-turbo-1106'):
     llm = ChatOpenAI(openai_api_key = OPENAI_API_KEY, temperature = 0, model_name = model_name)
     return llm
 
