@@ -5,17 +5,17 @@ from langchain.embeddings.openai import OpenAIEmbeddings
 from langchain.vectorstores import FAISS
 from langchain.document_loaders import PyPDFLoader
 from langchain.chat_models import ChatOpenAI
-from langchain.prompts import PromptTemplate
-from langchain.chains import RetrievalQA
-from langchain.memory import ConversationBufferWindowMemory
 from langchain.prompts.chat import ChatPromptTemplate, HumanMessagePromptTemplate, SystemMessagePromptTemplate
-
+from langchain.schema import HumanMessage, AIMessage, SystemMessage
 load_dotenv()
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 
-def ask_user_input():
-    user_input = input('Ask questions about your paper (type END to exit): \n')
+def ask_user_input(first_message = True):
+    if first_message:
+        user_input = input('Ask questions about your paper (type END to exit): \n')
+    else:
+        user_input = input('\n')
     return user_input
 
 def define_model(model_name='gpt-3.5-turbo'):
@@ -81,10 +81,19 @@ def create_prompt_template():
     chat_prompt = ChatPromptTemplate.from_messages([system_message_prompt, human_message_prompt])
     return chat_prompt
 
-def run_chat(chat_prompt, model, docs, user_input):
+def get_first_message(chat_prompt, docs, user_input):
+    chat_prompt_message = chat_prompt.format_prompt(
+        context=docs, text=user_input).to_messages()
+    return chat_prompt_message
+
+def get_following_messages(chat_prompt_message, last_response, new_user_input):
+    chat_prompt_message.append(AIMessage(content = last_response))
+    chat_prompt_message.append(HumanMessage(content=new_user_input))
+    return chat_prompt_message
+
+def run_chat(chat_prompt_message, model):
     chat = model
-    output = chat(chat_prompt.format_prompt(
-        context=docs, text=user_input).to_messages())
+    output = chat(chat_prompt_message)
     return output.content
 
 
@@ -107,8 +116,20 @@ def main():
     chat_prompt = create_prompt_template()
     model = define_model(model_name='gpt-3.5-turbo')
     user_input = ask_user_input()
+    if user_input == 'END':
+        return
     docs = similarity_search(vector_store, user_input)
-    print(run_chat(chat_prompt, model, docs, user_input))
+    chat_prompt_message = get_first_message(chat_prompt, docs, user_input)
+    answer = run_chat(chat_prompt_message, model)
+    print(answer)
+    while True:
+        new_user_input = ask_user_input(first_message = False)
+        if new_user_input == 'END':
+            break
+        docs = similarity_search(vector_store, user_input)
+        chat_prompt_message = get_following_messages(chat_prompt_message, answer, new_user_input)
+        answer = run_chat(chat_prompt_message, model)
+        print(answer)
     return
 
 if __name__ == "__main__":
