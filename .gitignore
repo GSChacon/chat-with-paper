@@ -2,3 +2,7 @@
 test_data/*
 vector_store_db/*
 .python-version
+__pycache__/
+*__pycache__/
+*.py[cod]
+*$py.class
