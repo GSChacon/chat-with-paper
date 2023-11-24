@@ -6,7 +6,8 @@ from langchain.vectorstores import FAISS
 from langchain.document_loaders import PyPDFLoader
 from langchain.chat_models import ChatOpenAI
 from langchain.prompts.chat import ChatPromptTemplate, HumanMessagePromptTemplate, SystemMessagePromptTemplate
-from langchain.schema import HumanMessage, AIMessage, SystemMessage
+from langchain.schema import HumanMessage, AIMessage
+
 load_dotenv()
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
@@ -72,8 +73,10 @@ def create_prompt_template():
     If you can't find the answer in the relevant part of the scientific paper, it says so in their answer.
     You understand markdown.
     You use twenty senteces maximum.
-    You use the following pieces of the paper to answer the question at the end. You prioratize the documentation to answer.
+    You use the pieces of the paper to answer the question at the end. You prioratize the documentation to answer.
+    Other relevant parts will be provided along the way by the user/human, you use them as well.
     Relevant part of the scientific paper in markdown: {context}
+    Remember that other relevant parts will be provided along the way by the user/human, you use them as well.
     """
     system_message_prompt = SystemMessagePromptTemplate.from_template(template)
     human_template = "{text}"
@@ -86,9 +89,12 @@ def get_first_message(chat_prompt, docs, user_input):
         context=docs, text=user_input).to_messages()
     return chat_prompt_message
 
-def get_following_messages(chat_prompt_message, last_response, new_user_input):
+def get_following_messages(chat_prompt_message, last_response, new_user_input, docs):
     chat_prompt_message.append(AIMessage(content = last_response))
-    chat_prompt_message.append(HumanMessage(content=new_user_input))
+    new_context = ''
+    for doc in docs:
+        new_context = new_context + ' ' + doc.page_content
+    chat_prompt_message.append(HumanMessage(content=new_user_input + ' Here is another relevant part of the paper: ' + new_context))
     return chat_prompt_message
 
 def run_chat(chat_prompt_message, model):
@@ -103,14 +109,14 @@ def main():
     name = get_pdf_name(path_to_pdf)
     check, path_to_store = check_if_db_exists(name)
     if not check:
-        print('File does not exist in database. \nCreating vector store... \n')
+        print('File does not exist in database. \nCreating vector store...')
         text = load_pdf(path_to_pdf)
         chunks = truncate_pdf_into_chunks(text)
         vector_store = embed_chunks(chunks)
         save_vector_store(vector_store, path_to_store)
-        print("Vector store created successfully!\n")
+        print("Vector store created successfully!")
     else:
-        print('File already exists in database. \nLoading vector store... \n')
+        print('File already exists in database. \nLoading vector store...')
         vector_store = load_vector_store(path_to_store)
     print('Loaded vector store')
     chat_prompt = create_prompt_template()
@@ -126,8 +132,8 @@ def main():
         new_user_input = ask_user_input(first_message = False)
         if new_user_input == 'END':
             break
-        docs = similarity_search(vector_store, user_input)
-        chat_prompt_message = get_following_messages(chat_prompt_message, answer, new_user_input)
+        docs = similarity_search(vector_store, new_user_input)
+        chat_prompt_message = get_following_messages(chat_prompt_message, answer, new_user_input, docs)
         answer = run_chat(chat_prompt_message, model)
         print(answer)
     return
